@@ -9,13 +9,21 @@ def get_a_share_data():
     """
     get the stock data of A-shares
     """
-    return ak.stock_zh_a_spot_em()
+    try:
+        return ak.stock_zh_a_spot_em()
+    except Exception as e:
+        print(f"Error fetching A-share data: {e}")
+        return pd.DataFrame()  # Return empty DataFrame on failure
 
 def get_hk_share_data():
     """
     get the stock data of HK-shares
     """
-    return ak.stock_hk_spot_em()
+    try:
+        return ak.stock_hk_spot_em()
+    except Exception as e:
+        print(f"Error fetching HK-share data: {e}")
+        return pd.DataFrame()  # Return empty DataFrame on failure
 
 def get_stock_history(stock_code, days=30):
     """
@@ -25,11 +33,16 @@ def get_stock_history(stock_code, days=30):
     """
     end_date = datetime.now().strftime("%Y%m%d")
     start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
-    if len(stock_code) == 5:
-        return ak.stock_hk_hist(symbol=stock_code,period = "daily",start_date=start_date, end_date=end_date, adjust="qfq")
-    elif len(stock_code) == 6:
-        return ak.stock_zh_a_hist(symbol=stock_code, period="daily",start_date=start_date, end_date=end_date, adjust="qfq")
-    else:
+    
+    try:
+        if len(stock_code) == 5:
+            return ak.stock_hk_hist(symbol=stock_code,period = "daily",start_date=start_date, end_date=end_date, adjust="qfq")
+        elif len(stock_code) == 6:
+            return ak.stock_zh_a_hist(symbol=stock_code, period="daily",start_date=start_date, end_date=end_date, adjust="qfq")
+        else:
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"Error fetching history for {stock_code}: {e}")
         return pd.DataFrame()
     
 def calculate_volatility(stock_data):
@@ -73,6 +86,7 @@ def update_excel(data, file_name = "hk.xlsx"):
 def update_stock_prices(file_name:str, sheet_name:str):
     """
     update stock prices in exist excel
+    Returns: bool - True if prices were successfully updated, False otherwise
     """
     print("-----------------------------")
     # read excel
@@ -103,9 +117,17 @@ def update_stock_prices(file_name:str, sheet_name:str):
     # fetching share data
     print("fetching A-share data...")
     a_share_data = get_a_share_data()
+    
+    if a_share_data.empty:
+        print("Failed to fetch A-share data. Exiting...")
+        return False
 
     print("fetching HK-share data...")
     hk_share_data = get_hk_share_data()
+    
+    if hk_share_data.empty:
+        print("Failed to fetch HK-share data. Exiting...")
+        return False
 
     # for debug
     debug_flag = False
@@ -152,13 +174,18 @@ def update_stock_prices(file_name:str, sheet_name:str):
     wb.save(file_name)
     print("-----------------------------")
     print(f"the stock prices are updated in {file_name}.")
+    return True
 
-def update_stock_volatility(file_name:str, sheet_name:str):
+def update_stock_volatility(file_name:str, sheet_name:str, update_prices:bool = True):
     """
-    update stock volatility in exist excel
+    update stock volatility and optionally latest closing prices in exist excel
+    @update_prices: bool - whether to update prices from historical data
     """
     print("-----------------------------")
-    print("update stock volatility...")
+    if update_prices:
+        print("update stock volatility and latest closing prices...")
+    else:
+        print("update stock volatility only...")
 
     # read excel
     wb = openpyxl.load_workbook(file_name)
@@ -180,26 +207,61 @@ def update_stock_volatility(file_name:str, sheet_name:str):
     volatility_h_col = headers["波动率h"]
     volatility_l_col = headers["波动率l"]
     volatility_col = headers["波动率"]
+    
+    # Optional columns for price updates
+    a_share_price_col = headers.get("现价(CNY)")
+    hk_share_price_col = headers.get("现价(HKD)")
+    percentage_change_col = headers.get("今日涨幅")
+    update_time_col = headers.get("更新时间")
 
     stock_codes = [row[stock_code_col-1].value for row in ws.iter_rows(min_row=2, max_col=stock_code_col+1) if row[stock_code_col].value]
 
     print("-----------------------------")
-    # update stock volatility
+    # update stock volatility and prices
     for i, stock_code in enumerate(stock_codes, start=2):
         stock_code = str(stock_code)
         stock_data = get_stock_history(stock_code, days=30)
         if stock_data.empty:
             print(f"--- Warning!!! --- {stock_code} is not found.")
             continue
+            
+        # Calculate volatility
         mean_volatility_h, mean_volatility_l, mean_volatility = calculate_volatility(stock_data)
         ws.cell(row=i, column=volatility_h_col, value=mean_volatility_h)
         ws.cell(row=i, column=volatility_l_col, value=mean_volatility_l)
         ws.cell(row=i, column=volatility_col, value=mean_volatility)
-        print(f"{stock_code:<8}  volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}")
+        
+        # Update latest closing price from historical data (only if update_prices is True)
+        if update_prices:
+            latest_price = stock_data.iloc[-1]["收盘"]  # Get the most recent closing price
+            latest_percentage_change = stock_data.iloc[-1]["涨跌幅"] / 100  # Get the latest percentage change
+            
+            if len(stock_code) == 5 and hk_share_price_col:  # HK stock
+                ws.cell(row=i, column=hk_share_price_col, value=latest_price)
+                if percentage_change_col:
+                    ws.cell(row=i, column=percentage_change_col, value=latest_percentage_change)
+                print(f"{stock_code:<8} H  volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}  price:{latest_price:.2f}  change:{latest_percentage_change*100:>6.2f}%")
+            elif len(stock_code) == 6 and a_share_price_col:  # A stock
+                ws.cell(row=i, column=a_share_price_col, value=latest_price)
+                if percentage_change_col:
+                    ws.cell(row=i, column=percentage_change_col, value=latest_percentage_change)
+                print(f"{stock_code:<8} A  volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}  price:{latest_price:.2f}  change:{latest_percentage_change*100:>6.2f}%")
+            else:
+                print(f"{stock_code:<8}    volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}")
+            
+            # Update timestamp if column exists
+            if update_time_col:
+                ws.cell(row=i, column=update_time_col, value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        else:
+            # Only print volatility information when not updating prices
+            print(f"{stock_code:<8}    volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}")
 
     wb.save(file_name)
     print("-----------------------------")
-    print(f"the stock volatility are updated in {file_name}.")
+    if update_prices:
+        print(f"the stock volatility and prices are updated in {file_name}.")
+    else:
+        print(f"the stock volatility are updated in {file_name}.")
 
 def main():
     parser = argparse.ArgumentParser(description="Update stock data")
@@ -213,12 +275,13 @@ def main():
     sheet_name = "预期收益率管理"
 
     if args.all:
-        update_stock_prices(file_name, sheet_name)
-        update_stock_volatility(file_name, sheet_name)
+        price_updated = update_stock_prices(file_name, sheet_name)
+        # If price update failed, allow volatility function to update prices from historical data
+        update_stock_volatility(file_name, sheet_name, update_prices=not price_updated)
     elif args.price:
         update_stock_prices(file_name, sheet_name)
     elif args.volatility:
-        update_stock_volatility(file_name, sheet_name)
+        update_stock_volatility(file_name, sheet_name, update_prices=True)  # Always update prices when only running volatility
     else:
         update_stock_prices(file_name, sheet_name)
 
