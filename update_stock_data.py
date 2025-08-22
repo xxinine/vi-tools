@@ -144,6 +144,10 @@ def update_stock_prices(file_name:str, sheet_name:str):
             if not row_data.empty:
                 company_name = row_data.iloc[0]["名称"]
                 latest_price = row_data.iloc[0]["最新价"]
+                # Check if latest_price is valid (not None, NaN, or 0)
+                if pd.isna(latest_price) or latest_price is None or latest_price <= 0:
+                    print(f"--- Warning!!! --- {stock_code} has invalid price: {latest_price}")
+                    continue  # Skip if latest price is invalid
                 percentage_change = row_data.iloc[0]["涨跌幅"] / 100
                 ws.cell(row=i, column=hk_share_price_col, value=latest_price) # write hk stock price
                 ws.cell(row=i, column=percentage_change_col, value=percentage_change) # write hk stock percentage change
@@ -156,11 +160,13 @@ def update_stock_prices(file_name:str, sheet_name:str):
             if not row_data.empty:
                 company_name = row_data.iloc[0]["名称"]
                 latest_price = row_data.iloc[0]["最新价"]
+                # Check if latest_price is valid (not None, NaN, or 0)
+                if pd.isna(latest_price) or latest_price is None or latest_price <= 0:
+                    print(f"--- Warning!!! --- {stock_code} has invalid price: {latest_price}")
+                    continue  # Skip if latest price is invalid
                 percentage_change = row_data.iloc[0]["涨跌幅"] / 100
                 total_val = row_data.iloc[0]["总市值"]
                 total_stock_issue = total_val / latest_price * 1e-8
-                if stock_code == "600025":
-                    total_stock_issue = 188.3 # special case for 600025
                 ws.cell(row=i, column=a_share_price_col, value=latest_price)
                 ws.cell(row=i, column=total_stock_issue_col, value=total_stock_issue)
                 ws.cell(row=i, column=percentage_change_col, value=percentage_change) # write hk stock percentage change
