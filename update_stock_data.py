@@ -111,6 +111,9 @@ def update_stock_prices(file_name:str, sheet_name:str):
     percentage_change_col = headers["今日涨幅"]
     total_stock_issue_col = headers["总股本"]
     update_time_col = headers["更新时间"]
+    
+    # 前低列（可选）
+    previous_low_col = headers.get("前低")
 
     stock_codes = [row[stock_code_col-1].value for row in ws.iter_rows(min_row=2, max_col=stock_code_col+1) if row[stock_code_col].value]
 
@@ -152,7 +155,18 @@ def update_stock_prices(file_name:str, sheet_name:str):
                 ws.cell(row=i, column=hk_share_price_col, value=latest_price) # write hk stock price
                 ws.cell(row=i, column=percentage_change_col, value=percentage_change) # write hk stock percentage change
                 ws.cell(row=i, column=update_time_col, value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                print(f"{stock_code:<8} {'H':<2} {company_name:<12} {latest_price:>6.2f} {percentage_change*100:>6.2f}%")
+                
+                # 更新前低（H股使用HKD价格）
+                if previous_low_col:
+                    current_previous_low = ws.cell(row=i, column=previous_low_col).value
+                    if current_previous_low is None or pd.isna(current_previous_low):
+                        new_previous_low = latest_price
+                    else:
+                        new_previous_low = min(latest_price, current_previous_low)
+                    ws.cell(row=i, column=previous_low_col, value=new_previous_low)
+                    print(f"{stock_code:<8} {'H':<2} {company_name:<12} {latest_price:>6.2f} {percentage_change*100:>6.2f}% pre_low:{new_previous_low:>6.2f}")
+                else:
+                    print(f"{stock_code:<8} {'H':<2} {company_name:<12} {latest_price:>6.2f} {percentage_change*100:>6.2f}%")
             else:
                 print(f"--- Warning!!! --- {stock_code} is not found.")
         elif len(stock_code) == 6:   # A stock
@@ -171,7 +185,18 @@ def update_stock_prices(file_name:str, sheet_name:str):
                 ws.cell(row=i, column=total_stock_issue_col, value=total_stock_issue)
                 ws.cell(row=i, column=percentage_change_col, value=percentage_change) # write hk stock percentage change
                 ws.cell(row=i, column=update_time_col, value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                print(f"{stock_code:<8} {'A':<2} {company_name:<12} {latest_price:>6.2f} {percentage_change*100:>6.2f}% total_stock_issue:{total_stock_issue:.2f}")
+                
+                # 更新前低（A股使用CNY价格）
+                if previous_low_col:
+                    current_previous_low = ws.cell(row=i, column=previous_low_col).value
+                    if current_previous_low is None or pd.isna(current_previous_low):
+                        new_previous_low = latest_price
+                    else:
+                        new_previous_low = min(latest_price, current_previous_low)
+                    ws.cell(row=i, column=previous_low_col, value=new_previous_low)
+                    print(f"{stock_code:<8} {'A':<2} {company_name:<12} {latest_price:>6.2f} {percentage_change*100:>6.2f}% total_stock_issue:{total_stock_issue:.2f} pre_low:{new_previous_low:>6.2f}")
+                else:
+                    print(f"{stock_code:<8} {'A':<2} {company_name:<12} {latest_price:>6.2f} {percentage_change*100:>6.2f}% total_stock_issue:{total_stock_issue:.2f}")
             else:
                 print(f"--- Warning!!! --- {stock_code} is not found.")
 
@@ -219,6 +244,7 @@ def update_stock_volatility(file_name:str, sheet_name:str, update_prices:bool = 
     hk_share_price_col = headers.get("现价(HKD)")
     percentage_change_col = headers.get("今日涨幅")
     update_time_col = headers.get("更新时间")
+    previous_low_col = headers.get("前低")
 
     stock_codes = [row[stock_code_col-1].value for row in ws.iter_rows(min_row=2, max_col=stock_code_col+1) if row[stock_code_col].value]
 
@@ -246,12 +272,34 @@ def update_stock_volatility(file_name:str, sheet_name:str, update_prices:bool = 
                 ws.cell(row=i, column=hk_share_price_col, value=latest_price)
                 if percentage_change_col:
                     ws.cell(row=i, column=percentage_change_col, value=latest_percentage_change)
-                print(f"{stock_code:<8} H  volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}  price:{latest_price:.2f}  change:{latest_percentage_change*100:>6.2f}%")
+                
+                # 更新前低（H股使用HKD价格）
+                if previous_low_col:
+                    current_previous_low = ws.cell(row=i, column=previous_low_col).value
+                    if current_previous_low is None or pd.isna(current_previous_low):
+                        new_previous_low = latest_price
+                    else:
+                        new_previous_low = min(latest_price, current_previous_low)
+                    ws.cell(row=i, column=previous_low_col, value=new_previous_low)
+                    print(f"{stock_code:<8} H  volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}  price:{latest_price:.2f}  change:{latest_percentage_change*100:>6.2f}%  pre_low:{new_previous_low:.2f}")
+                else:
+                    print(f"{stock_code:<8} H  volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}  price:{latest_price:.2f}  change:{latest_percentage_change*100:>6.2f}%")
             elif len(stock_code) == 6 and a_share_price_col:  # A stock
                 ws.cell(row=i, column=a_share_price_col, value=latest_price)
                 if percentage_change_col:
                     ws.cell(row=i, column=percentage_change_col, value=latest_percentage_change)
-                print(f"{stock_code:<8} A  volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}  price:{latest_price:.2f}  change:{latest_percentage_change*100:>6.2f}%")
+                
+                # 更新前低（A股使用CNY价格）
+                if previous_low_col:
+                    current_previous_low = ws.cell(row=i, column=previous_low_col).value
+                    if current_previous_low is None or pd.isna(current_previous_low):
+                        new_previous_low = latest_price
+                    else:
+                        new_previous_low = min(latest_price, current_previous_low)
+                    ws.cell(row=i, column=previous_low_col, value=new_previous_low)
+                    print(f"{stock_code:<8} A  volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}  price:{latest_price:.2f}  change:{latest_percentage_change*100:>6.2f}%  pre_low:{new_previous_low:.2f}")
+                else:
+                    print(f"{stock_code:<8} A  volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}  price:{latest_price:.2f}  change:{latest_percentage_change*100:>6.2f}%")
             else:
                 print(f"{stock_code:<8}    volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}")
             
