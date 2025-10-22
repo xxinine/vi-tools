@@ -4,6 +4,25 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 import argparse
+import shutil
+
+def create_backup(file_name):
+    """
+    Create a backup copy of the file before modification
+    @file_name: str, the original file name
+    """
+    if not os.path.exists(file_name):
+        print(f"Original file {file_name} does not exist, no backup needed")
+        return
+        
+    # Generate backup filename without timestamp
+    backup_name = f"{os.path.splitext(file_name)[0]}_backup{os.path.splitext(file_name)[1]}"
+    
+    try:
+        shutil.copy2(file_name, backup_name)
+        print(f"Backup file created: {backup_name}")
+    except Exception as e:
+        print(f"Failed to create backup file: {e}")
 
 def get_a_share_data():
     """
@@ -327,6 +346,9 @@ def main():
 
     file_name = "ValueInvestment_auto.xlsx"
     sheet_name = "预期收益率管理"
+
+    # Create backup before any modifications
+    create_backup(file_name)
 
     if args.all:
         price_updated = update_stock_prices(file_name, sheet_name)
