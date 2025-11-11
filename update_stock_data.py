@@ -226,10 +226,11 @@ def update_stock_prices(file_name:str, sheet_name:str):
     print(f"the stock prices are updated in {file_name}.")
     return True
 
-def update_stock_volatility(file_name:str, sheet_name:str, update_prices:bool = True):
+def update_stock_volatility(file_name:str, sheet_name:str, update_prices:bool = True, start_index:int = 1):
     """
     update stock volatility and optionally latest closing prices in exist excel
     @update_prices: bool - whether to update prices from historical data
+    @start_index: int - 1-based index of the first stock row to update
     """
     print("-----------------------------")
     if update_prices:
@@ -267,9 +268,23 @@ def update_stock_volatility(file_name:str, sheet_name:str, update_prices:bool = 
 
     stock_codes = [row[stock_code_col-1].value for row in ws.iter_rows(min_row=2, max_col=stock_code_col+1) if row[stock_code_col].value]
 
+    total_stocks = len(stock_codes)
+    if total_stocks == 0:
+        print("No stock codes found; nothing to update.")
+        return
+
+    if start_index < 1:
+        print(f"--- Warning!!! --- start_index {start_index} is less than 1; resetting to 1.")
+        start_index = 1
+
+    if start_index > total_stocks:
+        print(f"--- Warning!!! --- start_index {start_index} exceeds total stocks {total_stocks}; nothing to update.")
+        return
+
     print("-----------------------------")
     # update stock volatility and prices
-    for i, stock_code in enumerate(stock_codes, start=2):
+    for offset, stock_code in enumerate(stock_codes[start_index-1:], start=start_index):
+        excel_row = offset + 1  # compensate for header row in Excel
         stock_code = str(stock_code)
         stock_data = get_stock_history(stock_code, days=30)
         if stock_data.empty:
@@ -278,9 +293,9 @@ def update_stock_volatility(file_name:str, sheet_name:str, update_prices:bool = 
             
         # Calculate volatility
         mean_volatility_h, mean_volatility_l, mean_volatility = calculate_volatility(stock_data)
-        ws.cell(row=i, column=volatility_h_col, value=mean_volatility_h)
-        ws.cell(row=i, column=volatility_l_col, value=mean_volatility_l)
-        ws.cell(row=i, column=volatility_col, value=mean_volatility)
+        ws.cell(row=excel_row, column=volatility_h_col, value=mean_volatility_h)
+        ws.cell(row=excel_row, column=volatility_l_col, value=mean_volatility_l)
+        ws.cell(row=excel_row, column=volatility_col, value=mean_volatility)
         
         # Update latest closing price from historical data (only if update_prices is True)
         if update_prices:
@@ -288,34 +303,34 @@ def update_stock_volatility(file_name:str, sheet_name:str, update_prices:bool = 
             latest_percentage_change = stock_data.iloc[-1]["涨跌幅"] / 100  # Get the latest percentage change
             
             if len(stock_code) == 5 and hk_share_price_col:  # HK stock
-                ws.cell(row=i, column=hk_share_price_col, value=latest_price)
+                ws.cell(row=excel_row, column=hk_share_price_col, value=latest_price)
                 if percentage_change_col:
-                    ws.cell(row=i, column=percentage_change_col, value=latest_percentage_change)
+                    ws.cell(row=excel_row, column=percentage_change_col, value=latest_percentage_change)
                 
                 # 更新前低（H股使用HKD价格）
                 if previous_low_col:
-                    current_previous_low = ws.cell(row=i, column=previous_low_col).value
+                    current_previous_low = ws.cell(row=excel_row, column=previous_low_col).value
                     if current_previous_low is None or pd.isna(current_previous_low):
                         new_previous_low = latest_price
                     else:
                         new_previous_low = min(latest_price, current_previous_low)
-                    ws.cell(row=i, column=previous_low_col, value=new_previous_low)
+                    ws.cell(row=excel_row, column=previous_low_col, value=new_previous_low)
                     print(f"{stock_code:<8} H  volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}  price:{latest_price:.2f}  change:{latest_percentage_change*100:>6.2f}%  pre_low:{new_previous_low:.2f}")
                 else:
                     print(f"{stock_code:<8} H  volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}  price:{latest_price:.2f}  change:{latest_percentage_change*100:>6.2f}%")
             elif len(stock_code) == 6 and a_share_price_col:  # A stock
-                ws.cell(row=i, column=a_share_price_col, value=latest_price)
+                ws.cell(row=excel_row, column=a_share_price_col, value=latest_price)
                 if percentage_change_col:
-                    ws.cell(row=i, column=percentage_change_col, value=latest_percentage_change)
+                    ws.cell(row=excel_row, column=percentage_change_col, value=latest_percentage_change)
                 
                 # 更新前低（A股使用CNY价格）
                 if previous_low_col:
-                    current_previous_low = ws.cell(row=i, column=previous_low_col).value
+                    current_previous_low = ws.cell(row=excel_row, column=previous_low_col).value
                     if current_previous_low is None or pd.isna(current_previous_low):
                         new_previous_low = latest_price
                     else:
                         new_previous_low = min(latest_price, current_previous_low)
-                    ws.cell(row=i, column=previous_low_col, value=new_previous_low)
+                    ws.cell(row=excel_row, column=previous_low_col, value=new_previous_low)
                     print(f"{stock_code:<8} A  volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}  price:{latest_price:.2f}  change:{latest_percentage_change*100:>6.2f}%  pre_low:{new_previous_low:.2f}")
                 else:
                     print(f"{stock_code:<8} A  volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}  price:{latest_price:.2f}  change:{latest_percentage_change*100:>6.2f}%")
@@ -324,7 +339,7 @@ def update_stock_volatility(file_name:str, sheet_name:str, update_prices:bool = 
             
             # Update timestamp if column exists
             if update_time_col:
-                ws.cell(row=i, column=update_time_col, value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                ws.cell(row=excel_row, column=update_time_col, value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         else:
             # Only print volatility information when not updating prices
             print(f"{stock_code:<8}    volatility_h:{mean_volatility_h:.4f}  volatility_l:{mean_volatility_l:.4f}  volatility:{mean_volatility:.4f}")
@@ -341,6 +356,7 @@ def main():
     parser.add_argument('-p', '--price', action='store_true', help="Only update stock prices.")
     parser.add_argument('-v', '--volatility', action='store_true', help="Only update stock volatility.")
     parser.add_argument('-a', '--all', action='store_true', help="Update both stock prices and volatility.")
+    parser.add_argument('-s', '--start', type=int, default=1, help="1-based index to start the volatility update from.")
 
     args = parser.parse_args()
 
@@ -353,11 +369,11 @@ def main():
     if args.all:
         price_updated = update_stock_prices(file_name, sheet_name)
         # If price update failed, allow volatility function to update prices from historical data
-        update_stock_volatility(file_name, sheet_name, update_prices=not price_updated)
+        update_stock_volatility(file_name, sheet_name, update_prices=not price_updated, start_index=args.start)
     elif args.price:
         update_stock_prices(file_name, sheet_name)
     elif args.volatility:
-        update_stock_volatility(file_name, sheet_name, update_prices=True)  # Always update prices when only running volatility
+        update_stock_volatility(file_name, sheet_name, update_prices=True, start_index=args.start)  # Always update prices when only running volatility
     else:
         update_stock_prices(file_name, sheet_name)
 
