@@ -102,7 +102,7 @@ def update_excel(data, file_name = "hk.xlsx"):
     wb.save(file_name)
     print(f"data is updated in {file_name}")
 
-def update_stock_prices(file_name:str, sheet_name:str):
+def update_stock_prices_akshare(file_name:str, sheet_name:str):
     """
     update stock prices in exist excel
     Returns: bool - True if prices were successfully updated, False otherwise
@@ -134,7 +134,15 @@ def update_stock_prices(file_name:str, sheet_name:str):
     # 前低列（可选）
     previous_low_col = headers.get("前低")
 
-    stock_codes = [row[stock_code_col-1].value for row in ws.iter_rows(min_row=2, max_col=stock_code_col+1) if row[stock_code_col].value]
+    # 读取股票代码，只保留纯数字的5位或6位代码
+    stock_codes = []
+    for row in ws.iter_rows(min_row=2, max_col=stock_code_col):
+        cell_value = row[stock_code_col-1].value
+        if cell_value:
+            str_value = str(cell_value).strip()
+            # 只保留纯数字代码（5位或6位）
+            if str_value.isdigit() and (len(str_value) == 5 or len(str_value) == 6):
+                stock_codes.append(str_value)
 
     # fetching share data
     print("fetching A-share data...")
@@ -225,6 +233,137 @@ def update_stock_prices(file_name:str, sheet_name:str):
     print("-----------------------------")
     print(f"the stock prices are updated in {file_name}.")
     return True
+
+def update_stock_prices_homemade(file_name: str, sheet_name: str):
+    """
+    Update stock prices using homemade scraper from fetch_latest_quotes.py
+    Returns: bool - True if prices were successfully updated, False otherwise
+    """
+    print("-----------------------------")
+    print("Updating stock prices using homemade scraper...")
+    
+    # Import the functions from stock_quote_scraper
+    try:
+        from stock_quote_scraper import fetch_quotes_by_codes, QuoteParseError
+    except ImportError as e:
+        print(f"Error importing stock_quote_scraper: {e}")
+        return False
+    
+    # Read excel
+    wb = openpyxl.load_workbook(file_name)
+    if sheet_name not in wb.sheetnames:
+        print(f"sheet {sheet_name} does not exist!")
+        return False
+    
+    ws = wb[sheet_name]
+
+    headers = {cell.value: idx+1 for idx, cell in enumerate(ws[1])}  # 标题 -> 列号映射
+
+    required_columns = ["代码", "现价(CNY)", "现价(HKD)", "今日涨幅", "更新时间"]
+    for col in required_columns:
+        if col not in headers:
+            print(f"--- Error!!! --- column {col} is missing.")
+            return False
+
+    stock_code_col = headers["代码"]
+    a_share_price_col = headers["现价(CNY)"]
+    hk_share_price_col = headers["现价(HKD)"]
+    percentage_change_col = headers["今日涨幅"]
+    update_time_col = headers["更新时间"]
+    
+    # Optional columns
+    previous_low_col = headers.get("前低")
+    total_stock_issue_col = headers.get("总股本")
+
+    stock_codes = []
+    for row in ws.iter_rows(min_row=2, max_col=stock_code_col):
+        cell_value = row[stock_code_col-1].value
+        if cell_value:
+            str_value = str(cell_value).strip()
+            # Only keep pure numeric codes (5 or 6 digits)
+            if str_value.isdigit() and (len(str_value) == 5 or len(str_value) == 6):
+                stock_codes.append(str_value)
+
+    if not stock_codes:
+        print("No stock codes found.")
+        return False
+
+    print(f"Found {len(stock_codes)} stocks to update: {stock_codes}")
+    
+    # Fetch all quotes using the homemade scraper
+    print("Fetching stock quotes...")
+    try:
+        quotes = fetch_quotes_by_codes(stock_codes, verbose=True, sleep_seconds=2)  # Shorter sleep for faster updates
+    except Exception as e:
+        print(f"Error fetching quotes: {e}")
+        return False
+
+    # Create a mapping from stock code to quote data
+    quote_map = {quote.get("stock_code"): quote for quote in quotes if quote.get("stock_code")}
+
+    print("-----------------------------")
+    # Update stock prices
+    success_count = 0
+    for i, stock_code in enumerate(stock_codes, start=2):
+        quote = quote_map.get(stock_code)
+        if not quote or quote.get("error"):
+            print(f"--- Warning!!! --- {stock_code} quote not available or has error: {quote.get('error', 'Unknown error')}")
+            continue
+
+        latest_price = quote.get("latest_price")
+        if latest_price is None or latest_price <= 0:
+            print(f"--- Warning!!! --- {stock_code} has invalid price: {latest_price}")
+            continue
+
+        company_name = quote.get("name", stock_code)
+        price_change = quote.get("price_change", 0)
+        pct_change = quote.get("pct_change", 0) / 100  # Convert percentage to decimal
+
+        if len(stock_code) == 5:  # HK stock
+            ws.cell(row=i, column=hk_share_price_col, value=latest_price)
+            ws.cell(row=i, column=percentage_change_col, value=pct_change)
+            ws.cell(row=i, column=update_time_col, value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            
+            # Update previous low (HK stock uses HKD price)
+            if previous_low_col:
+                current_previous_low = ws.cell(row=i, column=previous_low_col).value
+                if current_previous_low is None or pd.isna(current_previous_low):
+                    new_previous_low = latest_price
+                else:
+                    new_previous_low = min(latest_price, current_previous_low)
+                ws.cell(row=i, column=previous_low_col, value=new_previous_low)
+                print(f"{stock_code:<8} {'H':<2} {company_name:<12} {latest_price:>6.3f} {pct_change*100:>6.2f}% pre_low:{new_previous_low:>6.3f}")
+            else:
+                print(f"{stock_code:<8} {'H':<2} {company_name:<12} {latest_price:>6.3f} {pct_change*100:>6.2f}%")
+
+        elif len(stock_code) == 6:  # A stock
+            ws.cell(row=i, column=a_share_price_col, value=latest_price)
+            ws.cell(row=i, column=percentage_change_col, value=pct_change)
+            ws.cell(row=i, column=update_time_col, value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            
+            # For A-shares, we don't have total market value from scraper, so we skip total_stock_issue calculation
+            
+            # Update previous low (A stock uses CNY price)
+            if previous_low_col:
+                current_previous_low = ws.cell(row=i, column=previous_low_col).value
+                if current_previous_low is None or pd.isna(current_previous_low):
+                    new_previous_low = latest_price
+                else:
+                    new_previous_low = min(latest_price, current_previous_low)
+                ws.cell(row=i, column=previous_low_col, value=new_previous_low)
+                print(f"{stock_code:<8} {'A':<2} {company_name:<12} {latest_price:>6.2f} {pct_change*100:>6.2f}% pre_low:{new_previous_low:>6.2f}")
+            else:
+                print(f"{stock_code:<8} {'A':<2} {company_name:<12} {latest_price:>6.2f} {pct_change*100:>6.2f}%")
+
+        success_count += 1
+
+    # Add timestamp at the bottom
+    ws.cell(row=len(stock_codes)+5, column=1, value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    wb.save(file_name)
+    print("-----------------------------")
+    print(f"Successfully updated {success_count}/{len(stock_codes)} stock prices in {file_name}.")
+    return success_count > 0
 
 def update_stock_volatility(file_name:str, sheet_name:str, update_prices:bool = True, start_index:int = 1):
     """
@@ -357,6 +496,7 @@ def main():
     parser.add_argument('-v', '--volatility', action='store_true', help="Only update stock volatility.")
     parser.add_argument('-a', '--all', action='store_true', help="Update both stock prices and volatility.")
     parser.add_argument('-s', '--start', type=int, default=1, help="1-based index to start the volatility update from.")
+    parser.add_argument('--homemade', action='store_true', help="Use homemade scraper instead of akshare for price updates.")
 
     args = parser.parse_args()
 
@@ -366,16 +506,24 @@ def main():
     # Create backup before any modifications
     create_backup(file_name)
 
+    # Choose which price update method to use
+    if args.homemade:
+        price_update_func = update_stock_prices_homemade
+        print("Using homemade scraper for price updates...")
+    else:
+        price_update_func = update_stock_prices_akshare
+        print("Using akshare for price updates...")
+
     if args.all:
-        price_updated = update_stock_prices(file_name, sheet_name)
+        price_updated = price_update_func(file_name, sheet_name)
         # If price update failed, allow volatility function to update prices from historical data
         update_stock_volatility(file_name, sheet_name, update_prices=not price_updated, start_index=args.start)
     elif args.price:
-        update_stock_prices(file_name, sheet_name)
+        price_update_func(file_name, sheet_name)
     elif args.volatility:
         update_stock_volatility(file_name, sheet_name, update_prices=True, start_index=args.start)  # Always update prices when only running volatility
     else:
-        update_stock_prices(file_name, sheet_name)
+        price_update_func(file_name, sheet_name)
 
     os.system(f"open {file_name}")
 
