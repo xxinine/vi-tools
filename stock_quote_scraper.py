@@ -137,6 +137,10 @@ def fetch_quote(target: StockTarget, verbose: bool = False) -> Dict[str, float |
     response = requests.get(target.url, headers=DEFAULT_HEADERS, timeout=15)
     response.raise_for_status()
 
+    # print("--- Response Content Start ---", file=sys.stderr)  # Debug output
+    # print(response.text, file=sys.stderr)  # Debug output
+    # print("--- Response Content End ---", file=sys.stderr)  # Debug output
+
     match = QUOTEDATA_PATTERN.search(response.text)
     if not match:
         raise QuoteParseError(f"Could not locate quotedata in {target.url}")
@@ -154,7 +158,7 @@ def fetch_quote(target: StockTarget, verbose: bool = False) -> Dict[str, float |
     pct_change = scaled(quotedata.get("zdf", 0), pct_scale)
     
     if verbose:
-        print(f"Fetched quote for {quotedata.get('name', target.secid)}: Price={latest_price}, Change={price_change}, Pct={pct_change}")
+        print(f"Fetched quote for {quotedata.get('name', target.secid)} {target.secid}: Price={latest_price}, Change={price_change}, Pct={pct_change}")
 
     return {
         "name": quotedata.get("name", target.secid),
