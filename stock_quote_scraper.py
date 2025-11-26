@@ -158,7 +158,7 @@ def fetch_quote(target: StockTarget, verbose: bool = False) -> Dict[str, float |
     pct_change = scaled(quotedata.get("zdf", 0), pct_scale)
     
     if verbose:
-        print(f"Fetched quote for {quotedata.get('name', target.secid)} {target.secid}: Price={latest_price}, Change={price_change}, Pct={pct_change}")
+        print(f"Fetched quote for {target.secid.split('.')[-1]:>6} {quotedata.get('name', target.secid):>12} - Price:{latest_price:>8.2f}, Change:{price_change:>8.2f}, Pct:{pct_change:8.2f}%")
 
     return {
         "name": quotedata.get("name", target.secid),
