@@ -28,6 +28,9 @@ DEFAULT_HEADERS = {
 # Regex that extracts the embedded quotedata JSON blob from the page.
 QUOTEDATA_PATTERN = re.compile(r"var\s+quotedata\s*=\s*(\{.*?\});", re.DOTALL)
 
+SHANGHAI_PREFIXES = ("60", "68", "5")  # includes ETFs such as 512890
+SHENZHEN_PREFIXES = ("00", "30")
+
 
 @dataclass(frozen=True)
 class StockTarget:
@@ -64,9 +67,9 @@ def build_stock_url(stock_code: str) -> str:
     if len(stock_code) == 5:  # Hong Kong stock
         return f"https://wap.eastmoney.com/quote/stock/116.{stock_code}.html"
     elif len(stock_code) == 6:
-        if stock_code.startswith(('60', '68')):  # Shanghai stock
+        if stock_code.startswith(SHANGHAI_PREFIXES):  # Shanghai stock & ETFs
             return f"https://wap.eastmoney.com/quote/stock/1.{stock_code}.html"
-        elif stock_code.startswith(('00', '30')):  # Shenzhen stock
+        elif stock_code.startswith(SHENZHEN_PREFIXES):  # Shenzhen stock
             return f"https://wap.eastmoney.com/quote/stock/0.{stock_code}.html"
         else:
             raise ValueError(f"Unsupported A-share stock code: {stock_code}")
@@ -79,9 +82,9 @@ def build_stock_secid(stock_code: str) -> str:
     if len(stock_code) == 5:  # Hong Kong stock
         return f"116.{stock_code}"
     elif len(stock_code) == 6:
-        if stock_code.startswith(('60', '68')):  # Shanghai stock
+        if stock_code.startswith(SHANGHAI_PREFIXES):  # Shanghai stock & ETFs
             return f"1.{stock_code}"
-        elif stock_code.startswith(('00', '30')):  # Shenzhen stock
+        elif stock_code.startswith(SHENZHEN_PREFIXES):  # Shenzhen stock
             return f"0.{stock_code}"
         else:
             raise ValueError(f"Unsupported A-share stock code: {stock_code}")
@@ -131,6 +134,35 @@ def fetch_quotes_by_codes(stock_codes: list[str], verbose: bool = False, sleep_s
     return results
 
 
+def get_display_width(text: str) -> int:
+    """Calculate display width of a string, counting CJK characters as 2 and ASCII as 1."""
+    width = 0
+    for char in text:
+        # CJK Unified Ideographs and CJK symbols occupy 2 columns
+        if '\u4e00' <= char <= '\u9fff' or '\u3000' <= char <= '\u303f':
+            width += 2
+        else:
+            width += 1
+    return width
+
+
+def pad_string_to_width(text: str, target_width: int, align: str = 'left') -> str:
+    """Pad a string to a target display width, accounting for CJK characters.
+    
+    Args:
+        text: The string to pad
+        target_width: The desired display width
+        align: 'left' or 'right' alignment
+    """
+    current_width = get_display_width(text)
+    padding_needed = max(0, target_width - current_width)
+    
+    if align == 'left':
+        return text + ' ' * padding_needed
+    else:  # right
+        return ' ' * padding_needed + text
+
+
 def fetch_quote(target: StockTarget, verbose: bool = False) -> Dict[str, float | str]:
     """Return quote information for a single stock target."""
 
@@ -158,7 +190,9 @@ def fetch_quote(target: StockTarget, verbose: bool = False) -> Dict[str, float |
     pct_change = scaled(quotedata.get("zdf", 0), pct_scale)
     
     if verbose:
-        print(f"Fetched quote for {target.secid.split('.')[-1]:>6} {quotedata.get('name', target.secid):>12} - Price:{latest_price:>8.2f}, Change:{price_change:>8.2f}, Pct:{pct_change:8.2f}%")
+        code = target.secid.split('.')[-1]
+        name = quotedata.get('name', target.secid)
+        print(f"Fetched quote for {code:>6} {pad_string_to_width(name, 12, 'left')} - Price:{latest_price:>8.2f}, Change:{price_change:>8.2f}, Pct:{pct_change:8.2f}%")
 
     return {
         "name": quotedata.get("name", target.secid),
